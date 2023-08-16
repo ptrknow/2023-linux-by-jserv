@@ -39,14 +39,37 @@ static inline void mutex_init(mutex_t *mutex)
 
 static bool mutex_trylock(mutex_t *mutex)
 {
+    /*
+     * Is the mutex already locked?
+     * Fails trylock if already locked.
+     */
     int state = load(&mutex->state, relaxed);
     if (state & MUTEX_LOCKED)
         return false;
 
+    /*
+     * Change the state to LOCKED to lock the mutex.
+     *
+     * During the interval between the previous check and the
+     * following atomic instruction, there may have been another
+     * thread taking the lock earlier than we could. Guard against
+     * this case by checking the returned |state| again. If the
+     * returned |state| is LOCKED, we lose the race and fail trylock.
+     */
     state = fetch_or(&mutex->state, MUTEX_LOCKED, relaxed);
     if (state & MUTEX_LOCKED)
         return false;
 
+    /*
+     * Successfully lock the mutex.
+     *
+     * Put an acquire fence here so that atomic loads above must
+     * happen-before the atomic loads and writes after this fence.
+     * Without this happen-before relation, there could be, for
+     * example, two threads that read an unlocked |state| and
+     * determine that both of them have locked the mutex, resulting
+     * in race condition hereafter.
+     */
     thread_fence(&mutex->state, acquire);
     return true;
 }
@@ -60,13 +83,30 @@ static inline void mutex_lock(mutex_t *mutex)
         spin_hint();
     }
 
+    /*
+     * Try locking the mutex and indicate that some thread might
+     * have slept on a |futex_wait| call so that later |mutex_unlock|
+     * can invoke |futex_wake| to wake up the sleeping thread.
+     */
     int state = exchange(&mutex->state, MUTEX_LOCKED | MUTEX_SLEEPING, relaxed);
 
+    /*
+     * As long as another thread has already locked the mutex, as
+     * indicated by the returned |state|, this thread shall sleep
+     * on futex.
+     */
     while (state & MUTEX_LOCKED) {
         futex_wait(&mutex->state, MUTEX_LOCKED | MUTEX_SLEEPING);
         state = exchange(&mutex->state, MUTEX_LOCKED | MUTEX_SLEEPING, relaxed);
     }
 
+    /*
+     * Successfully lock the mutex.
+     *
+     * Put an acquire fence here so that no more than one thread
+     * shall see an unlocked mutex at the same time, as commented
+     * in mutex_trylock() function.
+     */
     thread_fence(&mutex->state, acquire);
 }
 
