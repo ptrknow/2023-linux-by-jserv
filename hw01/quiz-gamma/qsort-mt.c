@@ -141,6 +141,9 @@ struct common {
 };
 
 static void *qsort_thread(void *p);
+#ifdef SKIP_PTHREAD_SINGLE
+static void qsort_algo(struct qsort *qs);
+#endif /* SKIP_PTHREAD_SINGLE */
 
 /* The multithreaded qsort public interface */
 void qsort_mt(void *a,
@@ -159,6 +162,17 @@ void qsort_mt(void *a,
         goto f1;
     errno = 0;
     /* Try to initialize the resources we need. */
+#ifdef SKIP_PTHREAD_SINGLE
+    struct qsort single_pool;
+    if (maxthreads == 1) {
+        c.pool = &single_pool;
+        qs = c.pool;
+        qs->common = &c;
+        qs->a = a;
+        qs->n = n;
+        goto jmp_common;
+    }
+#endif /* SKIP_PTHREAD_SINGLE */
     if (pthread_mutex_init(&c.mtx_al, NULL) != 0)
         goto f1;
     if ((c.pool = calloc(maxthreads, sizeof(struct qsort))) == NULL)
@@ -183,6 +197,9 @@ void qsort_mt(void *a,
     /* All systems go. */
     bailout = false;
 
+#ifdef SKIP_PTHREAD_SINGLE
+jmp_common:
+#endif /* SKIP_PTHREAD_SINGLE */
     /* Initialize common elements. */
 #ifdef USE_4_BYTE_SWAP
     c.swaptype = is_aligned(es, 8) ? 0 : is_aligned(es, 4) ? 1 : 2;
@@ -199,6 +216,13 @@ void qsort_mt(void *a,
     c.cmp = cmp;
     c.forkelem = forkelem;
     c.idlethreads = c.nthreads = maxthreads;
+
+#ifdef SKIP_PTHREAD_SINGLE
+    if (maxthreads == 1) {
+        qsort_algo(qs);
+        return;
+    }
+#endif /* SKIP_PTHREAD_SINGLE */
 
     /* Hand out the first work batch. */
     qs = &c.pool[0];
@@ -349,6 +373,21 @@ top:
 nevermind:
     nl = (pb - pa) / es;
     nr = (pd - pc) / es;
+
+#ifdef SKIP_PTHREAD_SINGLE
+    if (c->nthreads == 1) {
+        if (nl > 0) {
+            qs->a = a;
+            qs->n = nl;
+            qsort_algo(qs);
+        }
+        if (nr > 0) {
+            a = pn - nr * es;
+            n = nr;
+            goto top;
+        }
+    }
+#endif /* SKIP_PTHREAD_SINGLE */
 
     /* Now try to launch subthreads. */
     if (nl > c->forkelem && nr > c->forkelem &&

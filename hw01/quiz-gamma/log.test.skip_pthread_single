@@ -1,0 +1,112 @@
+===============================================================
+======= Previous test: Single-thread, integer, pthread ========
+===============================================================
+$ sudo perf stat ./qsort-mt-opt.out -t -v -h1
+[Use 4-byte swap] swaptype = 1
+1.91 1.89 0.012
+
+ Performance counter stats for './qsort-mt-opt.out -t -v -h1':
+
+          1,925.88 msec task-clock                       #    1.000 CPUs utilized             
+                49      context-switches                 #   25.443 /sec                      
+                 0      cpu-migrations                   #    0.000 /sec                      
+             9,837      page-faults                      #    5.108 K/sec                     
+     9,307,624,669      cycles                           #    4.833 GHz                       
+    11,392,119,240      instructions                     #    1.22  insn per cycle            
+     1,869,375,383      branches                         #  970.658 M/sec                     
+       106,779,735      branch-misses                    #    5.71% of all branches           
+
+       1.926673841 seconds time elapsed
+
+       1.914130000 seconds user
+       0.012015000 seconds sys
+       
+===========================================================
+======= Test 1: Single-thread, integer, NO pthread ========
+===========================================================
+$ sudo perf stat ./qsort-mt-opt.out -t -v -h1
+[Use 4-byte swap] swaptype = 1
+1.91 1.91 0
+
+ Performance counter stats for './qsort-mt-opt.out -t -v -h1':
+
+          1,929.05 msec task-clock                       #    1.000 CPUs utilized             
+                 2      context-switches                 #    1.037 /sec                      
+                 2      cpu-migrations                   #    1.037 /sec                      
+             9,831      page-faults                      #    5.096 K/sec                     
+     9,351,072,867      cycles                           #    4.848 GHz                       
+    11,419,546,612      instructions                     #    1.22  insn per cycle            
+     1,871,223,259      branches                         #  970.023 M/sec                     
+       107,196,097      branch-misses                    #    5.73% of all branches           
+
+       1.929438481 seconds time elapsed
+
+       1.929439000 seconds user
+       0.000000000 seconds sys
+
+======================================================================
+======= Previous test: Single-thread, 10-byte string, pthread ========
+======================================================================
+$ sudo perf stat ./qsort-mt-opt.out -t -s -h1
+[Use 4-byte swap] swaptype = 0
+6.01 5.91 0.096
+
+ Performance counter stats for './qsort-mt-opt.out -t -s -h1':
+
+          6,020.43 msec task-clock                       #    1.000 CPUs utilized             
+                83      context-switches                 #   13.786 /sec                      
+                 1      cpu-migrations                   #    0.166 /sec                      
+            97,726      page-faults                      #   16.232 K/sec                     
+    29,178,922,508      cycles                           #    4.847 GHz                       
+    32,864,619,488      instructions                     #    1.13  insn per cycle            
+     6,001,239,904      branches                         #  996.813 M/sec                     
+       193,791,550      branch-misses                    #    3.23% of all branches           
+
+       6.021455923 seconds time elapsed
+
+       5.912561000 seconds user
+       0.108010000 seconds sys
+
+
+==================================================================
+======= Test 2: Single-thread, 10-byte string, NO pthread ========
+==================================================================
+$ sudo perf stat ./qsort-mt-opt.out -t -s -h1
+[Use 4-byte swap] swaptype = 0
+5.93 5.86 0.072
+
+ Performance counter stats for './qsort-mt-opt.out -t -s -h1':
+
+          5,946.44 msec task-clock                       #    1.000 CPUs utilized             
+                25      context-switches                 #    4.204 /sec                      
+                 2      cpu-migrations                   #    0.336 /sec                      
+            97,720      page-faults                      #   16.433 K/sec                     
+    28,833,974,408      cycles                           #    4.849 GHz                       
+    32,864,586,182      instructions                     #    1.14  insn per cycle            
+     5,998,886,983      branches                         #    1.009 G/sec                     
+       193,483,458      branch-misses                    #    3.23% of all branches           
+
+       5.947091634 seconds time elapsed
+
+       5.866519000 seconds user
+       0.080034000 seconds sys
+
+$ sudo perf stat ./qsort-mt-opt.out -t -s -h1
+[Use 4-byte swap] swaptype = 0
+6.05 5.96 0.088
+
+ Performance counter stats for './qsort-mt-opt.out -t -s -h1':
+
+          6,059.25 msec task-clock                       #    1.000 CPUs utilized             
+                33      context-switches                 #    5.446 /sec                      
+                 3      cpu-migrations                   #    0.495 /sec                      
+            97,722      page-faults                      #   16.128 K/sec                     
+    29,247,231,390      cycles                           #    4.827 GHz                       
+    32,863,937,597      instructions                     #    1.12  insn per cycle            
+     5,998,796,519      branches                         #  990.022 M/sec                     
+       193,318,877      branch-misses                    #    3.22% of all branches           
+
+       6.059858807 seconds time elapsed
+
+       5.959526000 seconds user
+       0.099886000 seconds sys
