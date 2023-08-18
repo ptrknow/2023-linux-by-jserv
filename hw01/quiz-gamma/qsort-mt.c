@@ -5,6 +5,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
+
+/* Getting thread ID in integral type */
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+static bool verbose;
+#define gettid() syscall(__NR_gettid)
+#define tid_print(_str, ...)                               \
+    do {                                                   \
+        if (verbose) {                                     \
+            printf("[%ld] "_str, gettid(), ##__VA_ARGS__); \
+        }                                                  \
+    } while (0)
 
 #define verify(x)                                                      \
     do {                                                               \
@@ -152,6 +166,7 @@ void qsort_mt(void *a,
     bailout = false;
 
     /* Initialize common elements. */
+    /* swaptype: 0 or 1 means swap by long, 2 means swap by char (one byte) */
     c.swaptype = ((char *) a - (char *) 0) % sizeof(long) || es % sizeof(long)
                      ? 2
                  : es == sizeof(long) ? 0
@@ -209,6 +224,7 @@ static struct qsort *allocate_thread(struct common *c)
         if (c->pool[i].st == ts_idle) {
             c->idlethreads--;
             verify(pthread_mutex_lock(&c->pool[i].mtx_st));
+            tid_print("Kick a thread to work\n");
             c->pool[i].st = ts_work;
             verify(pthread_mutex_unlock(&c->mtx_al));
             return (&c->pool[i]);
@@ -239,61 +255,62 @@ static void qsort_algo(struct qsort *qs)
 top:
     /* From here on qsort(3) business as usual. */
     swap_cnt = 0;
-    if (n < 7) {
+    if (n < 7) { /* Insertion sort for small array */
         for (pm = (char *) a + es; pm < (char *) a + n * es; pm += es)
             for (pl = pm; pl > (char *) a && CMP(thunk, pl - es, pl) > 0;
                  pl -= es)
                 swap(pl, pl - es);
         return;
     }
-    pm = (char *) a + (n / 2) * es;
+    pm = (char *) a + (n / 2) * es; /* Middle element as pivot for small array */
     if (n > 7) {
         pl = (char *) a;
         pn = (char *) a + (n - 1) * es;
-        if (n > 40) {
+        if (n > 40) { /* Pseudomedian of 9 for large enough array */
             d = (n / 8) * es;
             pl = med3(pl, pl + d, pl + 2 * d, cmp, thunk);
             pm = med3(pm - d, pm, pm + d, cmp, thunk);
             pn = med3(pn - 2 * d, pn - d, pn, cmp, thunk);
         }
-        pm = med3(pl, pm, pn, cmp, thunk);
+        pm = med3(pl, pm, pn, cmp, thunk); /* Median of 3 for middle-size array */
     }
-    swap(a, pm);
+    swap(a, pm); /* |a| now points to the chosen median */
     pa = pb = (char *) a + es;
 
     pc = pd = (char *) a + (n - 1) * es;
-    for (;;) {
+    for (;;) { /* Collapsing-the-wall partitioning */
         while (pb <= pc && (r = CMP(thunk, pb, a)) <= 0) {
-            if (r == 0) {
+            if (r == 0) { /* Equal elements put to front */
                 swap_cnt = 1;
                 swap(pa, pb);
                 pa += es;
             }
-            pb += es;
+            pb += es; /* Move up the region of smaller elements */
         }
         while (pb <= pc && (r = CMP(thunk, pc, a)) >= 0) {
-            if (r == 0) {
+            if (r == 0) { /* Equal elements put to back */
                 swap_cnt = 1;
                 swap(pc, pd);
                 pd -= es;
             }
-            pc -= es;
+            pc -= es; /* Move down the region of larger elements */
         }
         if (pb > pc)
             break;
-        swap(pb, pc);
+        swap(pb, pc); /* Swap elements to the correct region */
         swap_cnt = 1;
         pb += es;
         pc -= es;
     }
-
+    /* Bring equal elements to the middle of array */
     pn = (char *) a + n * es;
     r = min(pa - (char *) a, pb - pa);
     vecswap(a, pb - r, r);
     r = min(pd - pc, pn - pd - es);
     vecswap(pb, pn - r, r);
 
-    if (swap_cnt == 0) { /* Switch to insertion sort */
+    if (swap_cnt == 0) { /* Switch to insertion sort if no swapping
+                            occurs during collapsing-the-wall */
         r = 1 + n / 4;   /* n >= 7, so r >= 2 */
         for (pm = (char *) a + es; pm < (char *) a + n * es; pm += es)
             for (pl = pm; pl > (char *) a && CMP(thunk, pl - es, pl) > 0;
@@ -340,13 +357,16 @@ static void *qsort_thread(void *p)
 again:
     /* Wait for work to be allocated. */
     verify(pthread_mutex_lock(&qs->mtx_st));
+    tid_print("Idle, waiting for work\n");
     while (qs->st == ts_idle)
         verify(pthread_cond_wait(&qs->cond_st, &qs->mtx_st));
     verify(pthread_mutex_unlock(&qs->mtx_st));
     if (qs->st == ts_term) {
+        tid_print("No further work, terminate\n");
         return NULL;
     }
     assert(qs->st == ts_work);
+    tid_print("Working\n");
 
     qsort_algo(qs);
 
@@ -354,6 +374,7 @@ again:
     qs->st = ts_idle;
     c->idlethreads++;
     if (c->idlethreads == c->nthreads) {
+        tid_print("Finished, notify others to terminate\n");
         for (i = 0; i < c->nthreads; i++) {
             qs2 = &c->pool[i];
             if (qs2 == qs)
@@ -366,12 +387,12 @@ again:
         verify(pthread_mutex_unlock(&c->mtx_al));
         return NULL;
     }
+    tid_print("Going to Idle\n");
     verify(pthread_mutex_unlock(&c->mtx_al));
     goto again;
 }
 
 #include <err.h>
-#include <stdint.h>
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -405,11 +426,12 @@ void usage(void)
 {
     fprintf(
         stderr,
-        "usage: qsort_mt [-stv] [-f forkelements] [-h threads] [-n elements]\n"
+        "usage: qsort_mt [-stvd] [-f forkelements] [-h threads] [-n elements]\n"
         "\t-l\tRun the libc version of qsort\n"
         "\t-s\tTest with 20-byte strings, instead of integers\n"
         "\t-t\tPrint timing results\n"
         "\t-v\tVerify the integer results\n"
+        "\t-d\tPrint debug messages\n"
         "Defaults are 1e7 elements, 2 threads, 100 fork elements\n");
     exit(1);
 }
@@ -431,7 +453,7 @@ int main(int argc, char *argv[])
     struct rusage ru;
 
     gettimeofday(&start, NULL);
-    while ((ch = getopt(argc, argv, "f:h:ln:stv")) != -1) {
+    while ((ch = getopt(argc, argv, "f:h:ln:stvd")) != -1) {
         switch (ch) {
         case 'f':
             forkelements = (int) strtol(optarg, &ep, 10);
@@ -465,6 +487,9 @@ int main(int argc, char *argv[])
             break;
         case 'v':
             opt_verify = true;
+            break;
+        case 'd':
+            verbose = true;
             break;
         case '?':
         default:
