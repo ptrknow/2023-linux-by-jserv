@@ -41,6 +41,15 @@ static inline void swapfunc(char *, char *, int, int);
         _a < _b ? _a : _b;  \
     })
 
+#ifdef USE_4_BYTE_SWAP
+__attribute_const__ __always_inline
+static bool is_aligned(size_t elem_sz, unsigned char align)
+{
+	unsigned char lsbits = (unsigned char)elem_sz;
+	return (lsbits & (align - 1)) == 0;
+}
+#endif /* USE_4_BYTE_SWAP */
+
 /* Qsort routine from Bentley & McIlroy's "Engineering a Sort Function" */
 #define swapcode(TYPE, parmi, parmj, n) \
     {                                   \
@@ -56,8 +65,17 @@ static inline void swapfunc(char *, char *, int, int);
 
 static inline void swapfunc(char *a, char *b, int n, int swaptype)
 {
+#ifdef USE_4_BYTE_SWAP
+    if (swaptype == 0)
+        swapcode(long, a, b, n)
+    else if (swaptype == 1)
+        swapcode(int, a, b, n)
+    else
+        swapcode(char, a, b, n)
+#else /* USE_4_BYTE_SWAP */
     if (swaptype <= 1)
         swapcode(long, a, b, n) else swapcode(char, a, b, n)
+#endif /* USE_4_BYTE_SWAP */
 }
 
 #define swap(a, b)                         \
@@ -166,11 +184,17 @@ void qsort_mt(void *a,
     bailout = false;
 
     /* Initialize common elements. */
+#ifdef USE_4_BYTE_SWAP
+    c.swaptype = is_aligned(es, 8) ? 0 : is_aligned(es, 4) ? 1 : 2;
+    printf("[Use 4-byte swap] swaptype = %d\n", c.swaptype);
+#else /* USE_4_BYTE_SWAP */
     /* swaptype: 0 or 1 means swap by long, 2 means swap by char (one byte) */
     c.swaptype = ((char *) a - (char *) 0) % sizeof(long) || es % sizeof(long)
                      ? 2
                  : es == sizeof(long) ? 0
                                       : 1;
+    printf("swaptype = %d\n", c.swaptype);
+#endif /* USE_4_BYTE_SWAP */
     c.es = es;
     c.cmp = cmp;
     c.forkelem = forkelem;
