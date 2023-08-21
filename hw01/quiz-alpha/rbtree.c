@@ -9,8 +9,8 @@
   linux/lib/rbtree.c
 */
 
-#include <linux/rbtree_augmented.h>
-#include <linux/export.h>
+#include "rbtree_augmented.h"
+/* <linux/export.h> removed, EXPORT_SYMBOL not needed */
 
 /*
  * red-black trees properties:  https://en.wikipedia.org/wiki/Rbtree
@@ -91,7 +91,8 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 		/*
 		 * Loop invariant: node is red.
 		 */
-		if (unlikely(!parent)) {
+		//if (unlikely(!parent)) {
+		if (!parent) {
 			/*
 			 * The inserted node is root. Either this is the
 			 * first node, or we recursed at Case 1 below and
@@ -407,12 +408,12 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 }
 
 /* Non-inline version for rb_erase_augmented() use */
+/* EXPORTED Interface */
 void __rb_erase_color(struct rb_node *parent, struct rb_root *root,
 	void (*augment_rotate)(struct rb_node *old, struct rb_node *new))
 {
 	____rb_erase_color(parent, root, augment_rotate);
 }
-EXPORT_SYMBOL(__rb_erase_color);
 
 /*
  * Non-augmented rbtree manipulation functions.
@@ -431,12 +432,13 @@ static const struct rb_augment_callbacks dummy_callbacks = {
 	.rotate = dummy_rotate
 };
 
+/* EXPORTED Interface */
 void rb_insert_color(struct rb_node *node, struct rb_root *root)
 {
 	__rb_insert(node, root, dummy_rotate);
 }
-EXPORT_SYMBOL(rb_insert_color);
 
+/* EXPORTED Interface */
 void rb_erase(struct rb_node *node, struct rb_root *root)
 {
 	struct rb_node *rebalance;
@@ -444,13 +446,13 @@ void rb_erase(struct rb_node *node, struct rb_root *root)
 	if (rebalance)
 		____rb_erase_color(rebalance, root, dummy_rotate);
 }
-EXPORT_SYMBOL(rb_erase);
 
 /*
  * Augmented rbtree manipulation functions.
  *
  * This instantiates the same __always_inline functions as in the non-augmented
  * case, but this time with user-defined callbacks.
+ * **EXPORTED Interface**
  */
 
 void __rb_insert_augmented(struct rb_node *node, struct rb_root *root,
@@ -458,10 +460,10 @@ void __rb_insert_augmented(struct rb_node *node, struct rb_root *root,
 {
 	__rb_insert(node, root, augment_rotate);
 }
-EXPORT_SYMBOL(__rb_insert_augmented);
 
 /*
  * This function returns the first node (in sort order) of the tree.
+ * **EXPORTED Interface**
  */
 struct rb_node *rb_first(const struct rb_root *root)
 {
@@ -474,8 +476,8 @@ struct rb_node *rb_first(const struct rb_root *root)
 		n = n->rb_left;
 	return n;
 }
-EXPORT_SYMBOL(rb_first);
 
+/* EXPORTED Interface */
 struct rb_node *rb_last(const struct rb_root *root)
 {
 	struct rb_node	*n;
@@ -487,8 +489,8 @@ struct rb_node *rb_last(const struct rb_root *root)
 		n = n->rb_right;
 	return n;
 }
-EXPORT_SYMBOL(rb_last);
 
+/* EXPORTED Interface */
 struct rb_node *rb_next(const struct rb_node *node)
 {
 	struct rb_node *parent;
@@ -519,8 +521,8 @@ struct rb_node *rb_next(const struct rb_node *node)
 
 	return parent;
 }
-EXPORT_SYMBOL(rb_next);
 
+/* EXPORTED Interface */
 struct rb_node *rb_prev(const struct rb_node *node)
 {
 	struct rb_node *parent;
@@ -548,8 +550,8 @@ struct rb_node *rb_prev(const struct rb_node *node)
 
 	return parent;
 }
-EXPORT_SYMBOL(rb_prev);
 
+/* EXPORTED Interface */
 void rb_replace_node(struct rb_node *victim, struct rb_node *new,
 		     struct rb_root *root)
 {
@@ -565,29 +567,6 @@ void rb_replace_node(struct rb_node *victim, struct rb_node *new,
 		rb_set_parent(victim->rb_right, new);
 	__rb_change_child(victim, new, parent, root);
 }
-EXPORT_SYMBOL(rb_replace_node);
-
-void rb_replace_node_rcu(struct rb_node *victim, struct rb_node *new,
-			 struct rb_root *root)
-{
-	struct rb_node *parent = rb_parent(victim);
-
-	/* Copy the pointers/colour from the victim to the replacement */
-	*new = *victim;
-
-	/* Set the surrounding nodes to point to the replacement */
-	if (victim->rb_left)
-		rb_set_parent(victim->rb_left, new);
-	if (victim->rb_right)
-		rb_set_parent(victim->rb_right, new);
-
-	/* Set the parent's pointer to the new node last after an RCU barrier
-	 * so that the pointers onwards are seen to be set correctly when doing
-	 * an RCU walk over the tree.
-	 */
-	__rb_change_child_rcu(victim, new, parent, root);
-}
-EXPORT_SYMBOL(rb_replace_node_rcu);
 
 static struct rb_node *rb_left_deepest_node(const struct rb_node *node)
 {
@@ -601,6 +580,7 @@ static struct rb_node *rb_left_deepest_node(const struct rb_node *node)
 	}
 }
 
+/* EXPORTED Interface */
 struct rb_node *rb_next_postorder(const struct rb_node *node)
 {
 	const struct rb_node *parent;
@@ -618,8 +598,8 @@ struct rb_node *rb_next_postorder(const struct rb_node *node)
 		 * should be next */
 		return (struct rb_node *)parent;
 }
-EXPORT_SYMBOL(rb_next_postorder);
 
+/* EXPORTED Interface */
 struct rb_node *rb_first_postorder(const struct rb_root *root)
 {
 	if (!root->rb_node)
@@ -627,4 +607,442 @@ struct rb_node *rb_first_postorder(const struct rb_root *root)
 
 	return rb_left_deepest_node(root->rb_node);
 }
-EXPORT_SYMBOL(rb_first_postorder);
+
+/*
+ * Taken and adapted from lib/rbtree_test.c from Linux kernel
+ */
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+int nnodes = 100; /* Number of nodes in the rb-tree */
+int perf_loops = 1000; /* Number of iterations modifying the rb-tree */
+int check_loops = 100; /* Number of iterations modifying and verifying the rb-tree */
+
+typedef uint32_t u32;
+
+#define WARN_ON_ONCE(cond)									\
+do {												\
+	if (cond)										\
+		fprintf(stderr, "BUG: failure at %s:%d/%s()!\n", __FILE__, __LINE__, __func__);	\
+} while (0)
+
+#define START_COUNT() \
+	gettimeofday(&start, NULL);
+
+#define STOP_COUNT(loops, _str, ...) 												  \
+do { 														  		  \
+	gettimeofday(&end, NULL); 										  		  \
+	printf(_str": %.10g ms\n", ##__VA_ARGS__, ((end.tv_sec - start.tv_sec) * 1e3 + (end.tv_usec - start.tv_usec) / 1e3) / loops); \
+} while (0)
+
+struct test_node {
+	u32 key;
+	struct rb_node rb;
+
+	/* following fields used for testing augmented rbtree functionality */
+	u32 val;
+	u32 augmented;
+};
+
+static struct rb_root_cached root = RB_ROOT_CACHED;
+static struct test_node *nodes = NULL;
+
+static void insert(struct test_node *node, struct rb_root_cached *root)
+{
+	struct rb_node **new = &root->rb_root.rb_node, *parent = NULL;
+	u32 key = node->key;
+
+	while (*new) {
+		parent = *new;
+		if (key < rb_entry(parent, struct test_node, rb)->key)
+			new = &parent->rb_left;
+		else
+			new = &parent->rb_right;
+	}
+
+	rb_link_node(&node->rb, parent, new);
+	rb_insert_color(&node->rb, &root->rb_root);
+}
+
+static void insert_cached(struct test_node *node, struct rb_root_cached *root)
+{
+	struct rb_node **new = &root->rb_root.rb_node, *parent = NULL;
+	u32 key = node->key;
+	bool leftmost = true;
+
+	while (*new) {
+		parent = *new;
+		if (key < rb_entry(parent, struct test_node, rb)->key)
+			new = &parent->rb_left;
+		else {
+			new = &parent->rb_right;
+			leftmost = false;
+		}
+	}
+
+	rb_link_node(&node->rb, parent, new);
+	rb_insert_color_cached(&node->rb, root, leftmost);
+}
+
+static inline void erase(struct test_node *node, struct rb_root_cached *root)
+{
+	rb_erase(&node->rb, &root->rb_root);
+}
+
+static inline void erase_cached(struct test_node *node, struct rb_root_cached *root)
+{
+	rb_erase_cached(&node->rb, root);
+}
+
+
+#define NODE_VAL(node) ((node)->val)
+
+RB_DECLARE_CALLBACKS_MAX(static, augment_callbacks,
+			 struct test_node, rb, u32, augmented, NODE_VAL)
+
+static void insert_augmented(struct test_node *node,
+			     struct rb_root_cached *root)
+{
+	struct rb_node **new = &root->rb_root.rb_node, *rb_parent = NULL;
+	u32 key = node->key;
+	u32 val = node->val;
+	struct test_node *parent;
+
+	while (*new) {
+		rb_parent = *new;
+		parent = rb_entry(rb_parent, struct test_node, rb);
+		if (parent->augmented < val)
+			parent->augmented = val;
+		if (key < parent->key)
+			new = &parent->rb.rb_left;
+		else
+			new = &parent->rb.rb_right;
+	}
+
+	node->augmented = val;
+	rb_link_node(&node->rb, rb_parent, new);
+	rb_insert_augmented(&node->rb, &root->rb_root, &augment_callbacks);
+}
+
+static void insert_augmented_cached(struct test_node *node,
+				    struct rb_root_cached *root)
+{
+	struct rb_node **new = &root->rb_root.rb_node, *rb_parent = NULL;
+	u32 key = node->key;
+	u32 val = node->val;
+	struct test_node *parent;
+	bool leftmost = true;
+
+	while (*new) {
+		rb_parent = *new;
+		parent = rb_entry(rb_parent, struct test_node, rb);
+		if (parent->augmented < val)
+			parent->augmented = val;
+		if (key < parent->key)
+			new = &parent->rb.rb_left;
+		else {
+			new = &parent->rb.rb_right;
+			leftmost = false;
+		}
+	}
+
+	node->augmented = val;
+	rb_link_node(&node->rb, rb_parent, new);
+	rb_insert_augmented_cached(&node->rb, root,
+				   leftmost, &augment_callbacks);
+}
+
+
+static void erase_augmented(struct test_node *node, struct rb_root_cached *root)
+{
+	rb_erase_augmented(&node->rb, &root->rb_root, &augment_callbacks);
+}
+
+static void erase_augmented_cached(struct test_node *node,
+				   struct rb_root_cached *root)
+{
+	rb_erase_augmented_cached(&node->rb, root, &augment_callbacks);
+}
+
+static void init(void)
+{
+	int i;
+	for (i = 0; i < nnodes; i++) {
+		nodes[i].key = rand() % (nnodes - 1);
+		nodes[i].val = rand() % (nnodes - 1);
+	}
+}
+
+static bool is_red(struct rb_node *rb)
+{
+	return !(rb->__rb_parent_color & 1);
+}
+
+static int black_path_count(struct rb_node *rb)
+{
+	int count;
+	for (count = 0; rb; rb = rb_parent(rb))
+		count += !is_red(rb);
+	return count;
+}
+
+static void check_postorder_foreach(int nr_nodes)
+{
+	struct test_node *cur, *n;
+	int count = 0;
+	rbtree_postorder_for_each_entry_safe(cur, n, &root.rb_root, rb)
+		count++;
+
+	WARN_ON_ONCE(count != nr_nodes);
+}
+
+static void check_postorder(int nr_nodes)
+{
+	struct rb_node *rb;
+	int count = 0;
+	for (rb = rb_first_postorder(&root.rb_root); rb; rb = rb_next_postorder(rb))
+		count++;
+
+	WARN_ON_ONCE(count != nr_nodes);
+}
+
+static void check(int nr_nodes)
+{
+	struct rb_node *rb;
+	int count = 0, blacks = 0;
+	u32 prev_key = 0;
+
+	for (rb = rb_first(&root.rb_root); rb; rb = rb_next(rb)) {
+		struct test_node *node = rb_entry(rb, struct test_node, rb);
+		WARN_ON_ONCE(node->key < prev_key);
+		WARN_ON_ONCE(is_red(rb) &&
+			     (!rb_parent(rb) || is_red(rb_parent(rb))));
+		if (!count)
+			blacks = black_path_count(rb);
+		else
+			WARN_ON_ONCE((!rb->rb_left || !rb->rb_right) &&
+				     blacks != black_path_count(rb));
+		prev_key = node->key;
+		count++;
+	}
+
+	WARN_ON_ONCE(count != nr_nodes);
+	WARN_ON_ONCE(count < (1 << black_path_count(rb_last(&root.rb_root))) - 1);
+
+	check_postorder(nr_nodes);
+	check_postorder_foreach(nr_nodes);
+}
+
+static void check_augmented(int nr_nodes)
+{
+	struct rb_node *rb;
+
+	check(nr_nodes);
+	for (rb = rb_first(&root.rb_root); rb; rb = rb_next(rb)) {
+		struct test_node *node = rb_entry(rb, struct test_node, rb);
+		u32 subtree, max = node->val;
+		if (node->rb.rb_left) {
+			subtree = rb_entry(node->rb.rb_left, struct test_node,
+					   rb)->augmented;
+			if (max < subtree)
+				max = subtree;
+		}
+		if (node->rb.rb_right) {
+			subtree = rb_entry(node->rb.rb_right, struct test_node,
+					   rb)->augmented;
+			if (max < subtree)
+				max = subtree;
+		}
+		WARN_ON_ONCE(node->augmented != max);
+	}
+}
+
+void usage(void)
+{
+	fprintf(
+	stderr,
+	"usage: rbtree [-n nnodes] [-l loops] [-c check_loops]\n"
+	"\t-n\tNumber of nodes, default 100\n"
+	"\t-l\tNumber of modification loops, default 1000\n"
+	"\t-c\tNumber of check loops, default 100\n"
+	"\t-s\tSkip check, by default won't skip\n"
+	);
+	exit(1);
+}
+
+int main(int argc, char *argv[])
+{
+	int i, j, ch, tmp, skip_check = 0;
+	char *ep;
+	struct timeval start, end;
+	struct rb_node *node;
+
+	while ((ch = getopt(argc, argv, "n:l:c:s")) != -1) {
+		switch (ch) {
+		case 'n':
+			tmp = (int) strtol(optarg, &ep, 10);
+			if (tmp <= 0 || *ep != '\0') {
+				fprintf(stderr, "illegal number, -n argument -- %s", optarg);
+				usage();
+			}
+			nnodes = tmp;
+			break;
+		case 'l':
+			tmp = (int) strtol(optarg, &ep, 10);
+			if (tmp <= 0 || *ep != '\0') {
+				fprintf(stderr, "illegal number, -l argument -- %s", optarg);
+				usage();
+			}
+			perf_loops = tmp;
+			break;
+		case 'c':
+			tmp = (int) strtol(optarg, &ep, 10);
+			if (tmp <= 0 || *ep != '\0') {
+				fprintf(stderr, "illegal number, -c argument -- %s", optarg);
+				usage();
+			}
+			check_loops = tmp;
+			break;
+		case 's':
+			skip_check = 1;
+			break;
+		default:
+			usage();
+		}
+	}
+	printf("nnodes = %d\n", nnodes);
+	printf("perf_loops = %d\n", perf_loops);
+	if (skip_check)
+		printf("skip check\n");
+	else
+		printf("check_loops = %d\n", check_loops);
+
+	nodes = calloc(nnodes, sizeof(*nodes));
+	if (!nodes)
+		return 1;
+
+	printf("rbtree testing\n");
+
+	srand(time(0));
+	init();
+
+	START_COUNT();
+
+	for (i = 0; i < perf_loops; i++) {
+		for (j = 0; j < nnodes; j++)
+			insert(nodes + j, &root);
+		for (j = 0; j < nnodes; j++)
+			erase(nodes + j, &root);
+	}
+
+	STOP_COUNT(perf_loops, " -> test 1 (avg latency of %d nnodes insert+delete for %d loops)", nnodes, perf_loops);
+
+	START_COUNT();
+
+	for (i = 0; i < perf_loops; i++) {
+		for (j = 0; j < nnodes; j++)
+			insert_cached(nodes + j, &root);
+		for (j = 0; j < nnodes; j++)
+			erase_cached(nodes + j, &root);
+	}
+
+	STOP_COUNT(perf_loops, " -> test 2 (latency of %d nnodes cached insert+delete for %d loops)", nnodes, perf_loops);
+
+	for (i = 0; i < nnodes; i++)
+		insert(nodes + i, &root);
+
+	START_COUNT();
+
+	for (i = 0; i < perf_loops; i++) {
+		for (node = rb_first(&root.rb_root); node; node = rb_next(node))
+			;
+	}
+
+	STOP_COUNT(perf_loops, " -> test 3 (avg latency of inorder traversal for %d times)", perf_loops);
+
+	START_COUNT();
+
+	for (i = 0; i < perf_loops; i++)
+		node = rb_first(&root.rb_root);
+
+	STOP_COUNT(perf_loops, " -> test 4 (avg latency to fetch first node) for %d times\n        non-cached", perf_loops);
+
+	START_COUNT();
+
+	for (i = 0; i < perf_loops; i++)
+		node = rb_first_cached(&root);
+
+	STOP_COUNT(perf_loops, "        cached");
+
+	for (i = 0; i < nnodes; i++)
+		erase(nodes + i, &root);
+
+	if (skip_check)
+		goto skip1;
+
+	/* run checks */
+	for (i = 0; i < check_loops; i++) {
+		init();
+		for (j = 0; j < nnodes; j++) {
+			check(j);
+			insert(nodes + j, &root);
+		}
+		for (j = 0; j < nnodes; j++) {
+			check(nnodes - j);
+			erase(nodes + j, &root);
+		}
+		check(0);
+	}
+
+skip1:
+	printf("augmented rbtree testing\n");
+
+	init();
+
+	START_COUNT();
+
+	for (i = 0; i < perf_loops; i++) {
+		for (j = 0; j < nnodes; j++)
+			insert_augmented(nodes + j, &root);
+		for (j = 0; j < nnodes; j++)
+			erase_augmented(nodes + j, &root);
+	}
+
+	STOP_COUNT(perf_loops, " -> test 1 (avg latency of %d nnodes insert+delete for %d loops)", nnodes, perf_loops);
+
+	START_COUNT();
+
+	for (i = 0; i < perf_loops; i++) {
+		for (j = 0; j < nnodes; j++)
+			insert_augmented_cached(nodes + j, &root);
+		for (j = 0; j < nnodes; j++)
+			erase_augmented_cached(nodes + j, &root);
+	}
+
+	STOP_COUNT(perf_loops, " -> test 2 (avg latency of %d nnodes cached insert+delete for %d loops)", nnodes, perf_loops);
+
+	if (skip_check)
+		goto skip2;
+
+	for (i = 0; i < check_loops; i++) {
+		init();
+		for (j = 0; j < nnodes; j++) {
+			check_augmented(j);
+			insert_augmented(nodes + j, &root);
+		}
+		for (j = 0; j < nnodes; j++) {
+			check_augmented(nnodes - j);
+			erase_augmented(nodes + j, &root);
+		}
+		check_augmented(0);
+	}
+
+skip2:
+	free(nodes);
+
+	return 0;
+}

@@ -17,14 +17,16 @@
 #ifndef	_LINUX_RBTREE_H
 #define	_LINUX_RBTREE_H
 
-#include <linux/container_of.h>
-#include <linux/rbtree_types.h>
+#include "rbtree_types.h"
 
-#include <linux/stddef.h>
-#include <linux/rcupdate.h>
+#include <stddef.h> /* Definition of NULL */
+#include <stdbool.h> /* Definition of Boolean type */
+/* Remove <linux/rcupdate.h> and all associated RCU related symbols */
 
 #define rb_parent(r)   ((struct rb_node *)((r)->__rb_parent_color & ~3))
 
+#define container_of(ptr, type, member) \
+    ((type *) ((char *) (ptr) - (offsetof(type, member))))
 #define	rb_entry(ptr, type, member) container_of(ptr, type, member)
 
 #define RB_EMPTY_ROOT(root)  (READ_ONCE((root)->rb_node) == NULL)
@@ -53,8 +55,6 @@ extern struct rb_node *rb_next_postorder(const struct rb_node *);
 /* Fast replacement of a single node without remove/rebalance/add/rebalance */
 extern void rb_replace_node(struct rb_node *victim, struct rb_node *new,
 			    struct rb_root *root);
-extern void rb_replace_node_rcu(struct rb_node *victim, struct rb_node *new,
-				struct rb_root *root);
 
 static inline void rb_link_node(struct rb_node *node, struct rb_node *parent,
 				struct rb_node **rb_link)
@@ -63,15 +63,6 @@ static inline void rb_link_node(struct rb_node *node, struct rb_node *parent,
 	node->rb_left = node->rb_right = NULL;
 
 	*rb_link = node;
-}
-
-static inline void rb_link_node_rcu(struct rb_node *node, struct rb_node *parent,
-				    struct rb_node **rb_link)
-{
-	node->__rb_parent_color = (unsigned long)parent;
-	node->rb_left = node->rb_right = NULL;
-
-	rcu_assign_pointer(*rb_link, node);
 }
 
 #define rb_entry_safe(ptr, type, member) \

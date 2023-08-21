@@ -12,9 +12,22 @@
 #ifndef _LINUX_RBTREE_AUGMENTED_H
 #define _LINUX_RBTREE_AUGMENTED_H
 
-#include <linux/compiler.h>
-#include <linux/rbtree.h>
-#include <linux/rcupdate.h>
+/* 
+ * Header <linux/compiler.h> is removed.
+ * Definitions in <asm/rwonce.h>, which is included by
+ * <linux/compiler.h>, is moved to here instead.
+ */
+#define __READ_ONCE(x)	(*(const volatile typeof(x) *)&(x))
+
+#define WRITE_ONCE(x, val)					\
+do {										\
+	*(volatile typeof(x) *)&(x) = (val);	\
+} while (0)
+
+#define __always_inline inline __attribute__((__always_inline__))
+
+#include "rbtree.h"
+/* Remove <linux/rcupdate.h> and all associated RCU related symbols */
 
 /*
  * Please note - only struct rb_augment_callbacks and the prototypes for
@@ -176,19 +189,6 @@ __rb_change_child(struct rb_node *old, struct rb_node *new,
 			WRITE_ONCE(parent->rb_right, new);
 	} else
 		WRITE_ONCE(root->rb_node, new);
-}
-
-static inline void
-__rb_change_child_rcu(struct rb_node *old, struct rb_node *new,
-		      struct rb_node *parent, struct rb_root *root)
-{
-	if (parent) {
-		if (parent->rb_left == old)
-			rcu_assign_pointer(parent->rb_left, new);
-		else
-			rcu_assign_pointer(parent->rb_right, new);
-	} else
-		rcu_assign_pointer(root->rb_node, new);
 }
 
 extern void __rb_erase_color(struct rb_node *parent, struct rb_root *root,
