@@ -639,6 +639,17 @@ do { 														  		  \
 	printf(_str": %.10g ms\n", ##__VA_ARGS__, ((end.tv_sec - start.tv_sec) * 1e3 + (end.tv_usec - start.tv_usec) / 1e3) / loops); \
 } while (0)
 
+#define SAVE_COUNT(val) 									 \
+do { 												 \
+	gettimeofday(&end, NULL); 								 \
+	val += (end.tv_sec - start.tv_sec) * 1e3 + (end.tv_usec - start.tv_usec) / (double) 1e3; \
+} while (0)
+
+#define REPORT_COUNT(val, loops, _str, ...) 				\
+do { 									\
+	printf("%s: %.10g ms\n", _str, ##__VA_ARGS__, val / loops); 	\
+} while (0)
+
 struct test_node {
 	u32 key;
 	struct rb_node rb;
@@ -861,27 +872,153 @@ static void check_augmented(int nr_nodes)
 	}
 }
 
+static int find_cmp(const void *k, const struct rb_node *node)
+{
+	struct test_node *left = k;
+	struct test_node *right = rb_entry(node, struct test_node, rb);
+
+	if (left->key > right->key)
+		return 1;
+	if (left->key < right->key)
+		return -1;
+	if (left->val > right->val)
+		return 1;
+	if (left->val < right->val)
+		return -1;
+	return 0;
+}
+
+static struct test_node * find(struct test_node *node, struct rb_root_cached *root)
+{
+	struct rb_node *rb = rb_find(node, &root->rb_root, find_cmp);
+
+	if (rb)
+		return rb_entry(rb, struct test_node, rb);
+	return NULL;
+}
+
+static void ascend_init(void)
+{
+	int i;
+	for (i = 0; i < nnodes; i++) {
+		nodes[i].key = i;
+		nodes[i].val = i;
+	}
+}
+
+static void descend_sorted_init(void)
+{
+	int i;
+	for (i = 0; i < nnodes; i++) {
+		nodes[i].key = nnodes - i;
+		nodes[i].val = nnodes - i;
+	}
+}
+
+static void alternate_init(void)
+{
+	int i;
+	for (i = 0; i < nnodes; i++) {
+		if (i % 2 == 0) {
+			nodes[i].key = 0;
+			nodes[i].val = 0;
+		} else {
+			nodes[i].key = nnodes - 1;
+			nodes[i].val = nnodes - 1;
+		}
+	}
+}
+
+static void almost_sorted_init(void)
+{
+	int i;
+	int align = 7;
+	int mask = align - 1;
+	for (i = 0; i < nnodes; i++) {
+		nodes[i].key = ((i + mask) / align) * align;
+		nodes[i].val = ((i + mask) / align) * align;
+	}
+}
+
+void insert_erase_loop(char *ins_str, char* ser_str, char *del_str)
+{
+	int i, j;
+	struct timeval start, end;
+	double ins, ser, del;
+
+	ins = 0;
+	ser = 0;
+	del = 0;
+	for (i = 0; i < perf_loops; i++) {
+		START_COUNT();
+		for (j = 0; j < nnodes; j++)
+			insert(nodes + j, &root);
+		SAVE_COUNT(ins);
+
+		START_COUNT();
+		for (j = 0; j < nnodes; j++)
+			find(nodes + j, &root);
+		SAVE_COUNT(ser);
+
+		START_COUNT();
+		for (j = 0; j < nnodes; j++)
+			erase(nodes + j, &root);
+		SAVE_COUNT(del);
+	}
+	REPORT_COUNT(ins, perf_loops, ins_str);
+	REPORT_COUNT(ser, perf_loops, ser_str);
+	REPORT_COUNT(del, perf_loops, del_str);
+}
+
+void benchmarking(void)
+{
+	nodes = calloc(nnodes, sizeof(*nodes));
+	if (!nodes)
+		exit(1);
+
+	srand(time(0));
+
+	init();
+	insert_erase_loop(" -> Insertion (Random)", " -> Search (Random)", " -> Deletion (Random)");
+
+	ascend_init();
+	insert_erase_loop(" -> Insertion (Ascending)", " -> Search (Ascending)", " -> Deletion (Ascending)");
+
+	descend_sorted_init();
+	insert_erase_loop(" -> Insertion (Descending)", " -> Search (Descending)", " -> Deletion (Descending)");
+
+	alternate_init();
+	insert_erase_loop(" -> Insertion (Alternate/Zigzag)", " -> Search (Alternate/Zigzag)", " -> Deletion (Alternate/Zigzag)");
+
+	almost_sorted_init();
+	insert_erase_loop(" -> Insertion (Almost Sorted)", " -> Search (Almost Sorted)", " -> Deletion (Almost Sorted)");
+
+	free(nodes);
+	exit(0);
+}
+
 void usage(void)
 {
 	fprintf(
 	stderr,
-	"usage: rbtree [-n nnodes] [-l loops] [-c check_loops]\n"
+	"usage: rbtree [-n nnodes] [-l loops] [-c check_loops] [-sb]\n"
 	"\t-n\tNumber of nodes, default 100\n"
 	"\t-l\tNumber of modification loops, default 1000\n"
 	"\t-c\tNumber of check loops, default 100\n"
 	"\t-s\tSkip check, by default won't skip\n"
+	"\t-b\tBenchmark mode\n"
 	);
 	exit(1);
 }
 
 int main(int argc, char *argv[])
 {
-	int i, j, ch, tmp, skip_check = 0;
+	int i, j, ch, tmp, skip_check = 0, benchmark = 0;
 	char *ep;
 	struct timeval start, end;
 	struct rb_node *node;
 
-	while ((ch = getopt(argc, argv, "n:l:c:s")) != -1) {
+	while ((ch = getopt(argc, argv, "n:l:c:sb")) != -1) {
 		switch (ch) {
 		case 'n':
 			tmp = (int) strtol(optarg, &ep, 10);
@@ -910,6 +1047,9 @@ int main(int argc, char *argv[])
 		case 's':
 			skip_check = 1;
 			break;
+		case 'b':
+			benchmark = 1;
+			break;
 		default:
 			usage();
 		}
@@ -920,6 +1060,11 @@ int main(int argc, char *argv[])
 		printf("skip check\n");
 	else
 		printf("check_loops = %d\n", check_loops);
+	if (benchmark) {
+		printf("Benchmark mode\n");
+		benchmarking();
+		/* Will not come back here */
+	}
 
 	nodes = calloc(nnodes, sizeof(*nodes));
 	if (!nodes)

@@ -421,21 +421,201 @@ void treeint_dump()
     __treeint_dump(st_root(tree), 0);
 }
 
-int main()
+#include <stdint.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+typedef uint32_t u32;
+
+#define START_COUNT() \
+    gettimeofday(&start, NULL);
+
+#define SAVE_COUNT(val)                                                                         \
+    do                                                                                          \
+    {                                                                                           \
+        gettimeofday(&end, NULL);                                                               \
+        val += (end.tv_sec - start.tv_sec) * 1e3 + (end.tv_usec - start.tv_usec) / (double)1e3; \
+    } while (0)
+
+#define REPORT_COUNT(val, loops, _str, ...)                         \
+    do                                                              \
+    {                                                               \
+        printf("%s: %.10g ms\n", _str, ##__VA_ARGS__, val / loops); \
+    } while (0)
+
+static void rand_init(int *nodes, int nnodes)
 {
-    srand(time(0));
+    int i;
+    for (i = 0; i < nnodes; i++)
+        nodes[i] = rand() % (nnodes - 1);
+}
+
+static void ascend_init(int *nodes, int nnodes)
+{
+    int i;
+    for (i = 0; i < nnodes; i++)
+        nodes[i] = i;
+}
+
+static void descend_sorted_init(int *nodes, int nnodes)
+{
+    int i;
+    for (i = 0; i < nnodes; i++)
+        nodes[i] = nnodes - i;
+}
+
+static void alternate_init(int *nodes, int nnodes)
+{
+    int i;
+    for (i = 0; i < nnodes; i++)
+    {
+        if (i % 2 == 0)
+        {
+            nodes[i] = 0;
+        }
+        else
+        {
+            nodes[i] = nnodes - 1;
+        }
+    }
+}
+
+static void almost_sorted_init(int *nodes, int nnodes)
+{
+    int i;
+    int align = 7;
+    int mask = align - 1;
+    for (i = 0; i < nnodes; i++)
+        nodes[i] = ((i + mask) / align) * align;
+}
+
+void insert_erase_loop(int *nodes, int nnodes, int loops, char *ins_str, char *ser_str, char *del_str)
+{
+    int i, j;
+    struct timeval start, end;
+    double ins, ser, del;
+
+    ins = 0;
+    ser = 0;
+    del = 0;
+    for (i = 0; i < loops; i++)
+    {
+        START_COUNT();
+        for (j = 0; j < nnodes; j++)
+            treeint_insert(*(nodes + j));
+        SAVE_COUNT(ins);
+
+        START_COUNT();
+        for (j = 0; j < nnodes; j++)
+            treeint_find(*(nodes + j));
+        SAVE_COUNT(ser);
+
+        START_COUNT();
+        for (j = 0; j < nnodes; j++)
+            treeint_remove(*(nodes + j));
+        SAVE_COUNT(del);
+    }
+    REPORT_COUNT(ins, loops, ins_str);
+    REPORT_COUNT(ser, loops, ser_str);
+    REPORT_COUNT(del, loops, del_str);
+}
+
+void benchmarking(int nnodes, int loops)
+{
+    printf("S-tree benchmarking\n");
+
+    int *nodes = calloc(nnodes, sizeof(int));
+    if (!nodes)
+        exit(1);
 
     treeint_init();
 
-    for (int i = 0; i < 100; ++i)
-        treeint_insert(rand() % 99);
+    rand_init(nodes, nnodes);
+    insert_erase_loop(nodes, nnodes, loops, " -> Insertion (Random)", " -> Search (Random)", " -> Deletion (Random)");
+
+    ascend_init(nodes, nnodes);
+    insert_erase_loop(nodes, nnodes, loops, " -> Insertion (Ascending)", " -> Search (Ascending)", " -> Deletion (Ascending)");
+
+    descend_sorted_init(nodes, nnodes);
+    insert_erase_loop(nodes, nnodes, loops, " -> Insertion (Descending)", " -> Search (Descending)", " -> Deletion (Descending)");
+
+    alternate_init(nodes, nnodes);
+    insert_erase_loop(nodes, nnodes, loops, " -> Insertion (Alternate/Zigzag)", " -> Search (Alternate/Zigzag)", " -> Deletion (Alternate/Zigzag)");
+
+    almost_sorted_init(nodes, nnodes);
+    insert_erase_loop(nodes, nnodes, loops, " -> Insertion (Almost Sorted)", " -> Search (Almost Sorted)", " -> Deletion (Almost Sorted)");
+
+    treeint_destroy();
+
+    free(nodes);
+
+    exit(0);
+}
+
+void usage(void)
+{
+    fprintf(
+        stderr,
+        "usage: rbtree [-n nnodes] [-l loops] [-b]\n"
+        "\t-n\tNumber of nodes, default 100\n"
+        "\t-l\tNumber of modification loops, default 10\n"
+        "\t-b\tBenchmark mode\n");
+    exit(1);
+}
+
+int main(int argc, char *argv[])
+{
+    int ch, benchmark = 0;
+    int nnodes = 100, loops = 10, tmp;
+    char *ep;
+
+    while ((ch = getopt(argc, argv, "n:l:c:sb")) != -1)
+    {
+        switch (ch)
+        {
+        case 'n':
+            tmp = (int)strtol(optarg, &ep, 10);
+            if (tmp <= 0 || *ep != '\0')
+            {
+                fprintf(stderr, "illegal number, -n argument -- %s", optarg);
+                usage();
+            }
+            nnodes = tmp;
+            break;
+        case 'l':
+            tmp = (int)strtol(optarg, &ep, 10);
+            if (tmp <= 0 || *ep != '\0')
+            {
+                fprintf(stderr, "illegal number, -l argument -- %s", optarg);
+                usage();
+            }
+            loops = tmp;
+            break;
+        case 'b':
+            benchmark = 1;
+            break;
+        default:
+            usage();
+        }
+    }
+
+    srand(time(0));
+
+    if (benchmark)
+        benchmarking(nnodes, loops);
+        /* Will not return here */
+
+    treeint_init();
+
+    for (int i = 0; i < nnodes; ++i)
+        treeint_insert(rand() % (nnodes - 1));
 
     printf("[ After insertions ]\n");
     treeint_dump();
 
     printf("Removing...\n");
-    for (int i = 0; i < 100; ++i) {
-        int v = rand() % 99;
+    for (int i = 0; i < nnodes; ++i) {
+        int v = rand() % (nnodes - 1);
         printf("%2d  ", v);
         if ((i + 1) % 10 == 0)
             printf("\n");

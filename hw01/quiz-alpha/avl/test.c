@@ -75,6 +75,7 @@ struct option
 enum test
   {
     TST_CORRECTNESS,                /* Default tests. */
+    TST_BENCHMARK,                /* Benchmark test. */
     TST_OVERFLOW,                /* Stack overflow test. */
     TST_NULL                    /* No test, just overhead. */
   };
@@ -624,7 +625,6 @@ usage (void)
       "                      fail-CNT  fail after CNT allocations\n",
       "                      fail%%PCT  fail random PCT%% of allocations\n",
       "                      sub-B,A   divide B-byte blocks in A-byte units\n",
-      "                    (Ignored for `benchmark' test.)\n",
       "-A, --incr=INC      Fail policies: arg increment per repetition.\n",
       "-S, --seed=SEED     Sets initial number seed to SEED.\n",
       "                    (default based on system time)\n",
@@ -699,6 +699,8 @@ parse_command_line (char **args, struct test_options *options)
         case 't':
           if (match_len (arg, "correctness") >= 3)
             options->test = TST_CORRECTNESS;
+          else if (match_len (arg, "benchmark") >= 3)
+            options->test = TST_BENCHMARK;
           else if (match_len (arg, "overflow") >= 3)
             options->test = TST_OVERFLOW;
           else if (match_len (arg, "null") >= 3)
@@ -990,12 +992,79 @@ time_seed (void)
   return seed;
 }
 
+void
+print_opt_order(struct test_options *opts)
+{
+  assert(opts != NULL);
+
+  if (opts->test != TST_BENCHMARK)
+    return;
+
+  switch (opts->insert_order)
+    {
+      case INS_RANDOM:
+        printf ("Insertion Order: Random\n");
+        break;
+
+      case INS_ASCENDING:
+        printf ("Insertion Order: Ascending\n");
+        break;
+
+      case INS_DESCENDING:
+        printf ("Insertion Order: Descending\n");
+        break;
+
+      case INS_BALANCED:
+        printf ("Insertion Order: Balanced\n");
+        break;
+
+      case INS_ZIGZAG:
+        printf ("Insertion Order: Zigzag\n");
+        break;
+
+      case INS_ASCENDING_SHIFTED:
+        printf ("Insertion Order: Ascending in middle then beginning\n");
+        break;
+
+      case INS_CUSTOM:
+        printf ("Insertion Order: Custom\n");
+        break;
+
+      default:
+        printf ("Invalid insertion order \n");
+    }
+
+  switch (opts->delete_order)
+    {
+      case DEL_RANDOM:
+        printf ("Deletion Order: Random\n");
+        break;
+
+      case DEL_REVERSE:
+        printf ("Deletion Order: Reverse\n");
+        break;
+
+      case DEL_SAME:
+        printf ("Deletion Order: Same as insertion\n");
+        break;
+
+      case DEL_CUSTOM:
+        printf ("Deletion Order: Custom\n");
+        break;
+
+      default:
+        printf ("Invalid deletion order \n");
+    }
+}
+
 int
 main (int argc, char *argv[])
 {
   struct test_options opts;        /* Command-line options. */
   int *insert, *delete;                /* Insertion and deletion orders. */
   int success;                  /* Everything okay so far? */
+  double ins_delay = 0, ser_delay = 0, del_delay = 0;
+  int iter_cnt;
 
   /* Initialize |pgm_name|, using |argv[0]| if sensible. */
   pgm_name = argv[0] != NULL && argv[0][0] != '\0' ? argv[0] : "bst-test";
@@ -1014,16 +1083,21 @@ main (int argc, char *argv[])
 
   /* Run the tests. */
   success = 1;
+  iter_cnt = opts.iter_cnt;
+  print_opt_order(&opts);
+
   while (opts.iter_cnt--)
     {
       struct mt_allocator *alloc;
 
       if (opts.verbosity >= 0)
         {
-          printf ("Testing seed=%u", opts.seed);
+          if (opts.test != TST_BENCHMARK)
+            printf ("Testing seed=%u", opts.seed);
           if (opts.alloc_incr)
             printf (", alloc arg=%d", opts.alloc_arg[0]);
-          printf ("...\n");
+          if (opts.test != TST_BENCHMARK)
+            printf ("...\n");
           fflush (stdout);
         }
 
@@ -1067,6 +1141,19 @@ main (int argc, char *argv[])
                                      opts.verbosity);
             break;
 
+          case TST_BENCHMARK:
+            double ins_old = ins_delay;
+            double ser_old = ser_delay;
+            double del_old = del_delay;
+            okay = test_benchmark (a, insert, delete, opts.node_cnt,
+                                   opts.verbosity, &ins_delay, &ser_delay, &del_delay);
+            if (opts.verbosity >= 1)
+              printf ("  Ins delay = %.10g, Ser delay = %.10g, Del delay = %.10g\n", 
+                                   ins_delay - ins_old,
+                                   ser_delay - ser_old,
+                                   del_delay - del_old);
+            break;
+
           case TST_OVERFLOW:
             okay = test_overflow (a, insert, opts.node_cnt, opts.verbosity);
             break;
@@ -1096,6 +1183,16 @@ main (int argc, char *argv[])
 
       if (!success && !opts.nonstop)
         break;
+    }
+
+  if (opts.test == TST_BENCHMARK)
+    {
+      ins_delay /= iter_cnt;
+      ser_delay /= iter_cnt;
+      del_delay /= iter_cnt;
+      printf("Average insertion delay over %d iteration: %.10g ms\n", iter_cnt, ins_delay);
+      printf("Average search delay over %d iteration: %.10g ms\n", iter_cnt, ser_delay);
+      printf("Average deletion delay over %d iteration: %.10g ms\n", iter_cnt, del_delay);
     }
 
   free (delete);

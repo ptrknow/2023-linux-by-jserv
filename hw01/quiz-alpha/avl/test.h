@@ -34,6 +34,9 @@ struct libavl_allocator
 
 int test_correctness (struct libavl_allocator *allocator,
                       int insert[], int delete[], int n, int verbosity);
+int test_benchmark (struct libavl_allocator *allocator,
+                    int insert[], int delete[], int n, int verbosity,
+                    double *ins, double *ser, double *del);
 int test_overflow (struct libavl_allocator *, int order[], int n,
                    int verbosity);
 int compare_ints (const void *pa, const void *pb, void *param);

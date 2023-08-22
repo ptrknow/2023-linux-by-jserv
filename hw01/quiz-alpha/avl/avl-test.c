@@ -355,6 +355,118 @@ verify_tree (struct avl_table *tree, int array[], size_t n)
   return okay;
 }
 
+#include <time.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+#define START_COUNT() \
+  gettimeofday(&start, NULL);
+
+#define STOP_COUNT() \
+  gettimeofday(&end, NULL);
+
+#define COUNT_MS() \
+  (end.tv_sec - start.tv_sec) * 1e3 + (end.tv_usec - start.tv_usec) / 1e3
+
+/* Benchmark tree functions.
+   |insert[]| and |delete[]| must contain some permutation of values
+   |0|@dots{}|n - 1|.
+   Uses |allocator| as the allocator for tree and node data.
+   Higher values of |verbosity| produce more debug output. */
+int
+test_benchmark (struct libavl_allocator *allocator,
+                  int insert[], int delete[], int n, int verbosity,
+                  double *ins, double *ser, double *del)
+{
+  struct timeval start, end;
+  struct avl_table *tree;
+  int okay = 1;
+  int i;
+
+  assert(ins != NULL);
+  assert(ser != NULL);
+  assert(del != NULL);
+
+  /* Test creating a AVL and inserting into it. */
+  tree = avl_create (compare_ints, NULL, allocator);
+  if (tree == NULL)
+    {
+      if (verbosity >= 0)
+        printf ("  Out of memory creating tree.\n");
+      return 1;
+    }
+
+  START_COUNT();
+  for (i = 0; i < n; i++)
+    {
+      if (verbosity >= 2)
+        printf ("  Inserting %d...\n", insert[i]);
+
+      /* Add the |i|th element to the tree. */
+      {
+        void **p = avl_probe (tree, &insert[i]);
+        if (p == NULL)
+          {
+            if (verbosity >= 0)
+              printf ("    Out of memory in insertion.\n");
+            avl_destroy (tree, NULL);
+            return 1;
+          }
+        if (*p != &insert[i])
+          printf ("    Duplicate item in tree!\n");
+      }
+    }
+  STOP_COUNT();
+  *ins += COUNT_MS();
+
+  /* Test AVL search. */
+  START_COUNT();
+  for (i = 0; i < n; i++)
+    {
+      struct avl_traverser x;
+
+      if (insert[i] == delete[i])
+        continue;
+
+      if (verbosity >= 2)
+        printf ("   Checking traversal from item %d...\n", insert[i]);
+
+      if (avl_t_find (&x, tree, &insert[i]) == NULL)
+        {
+          printf ("    Can't find item %d in tree!\n", insert[i]);
+          continue;
+        }
+    }
+  STOP_COUNT();
+  *ser += COUNT_MS();
+
+  /* Test deleting nodes from the tree. */
+  START_COUNT();
+  for (i = 0; i < n; i++)
+    {
+      int *deleted;
+
+      if (verbosity >= 2)
+        printf ("  Deleting %d...\n", delete[i]);
+
+      deleted = avl_delete (tree, &delete[i]);
+
+      if (deleted == NULL || *deleted != delete[i])
+        {
+          okay = 0;
+          if (deleted == NULL)
+            printf ("    Deletion failed.\n");
+          else
+            printf ("    Wrong node %d returned.\n", *deleted);
+        }
+    }
+  STOP_COUNT();
+  *del += COUNT_MS();
+
+  avl_destroy (tree, NULL);
+  return okay;
+}
+
 /* Tests tree functions.
    |insert[]| and |delete[]| must contain some permutation of values
    |0|@dots{}|n - 1|.
